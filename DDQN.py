@@ -1,3 +1,4 @@
+from typing import Dict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,33 +10,33 @@ import gym
 
 
 class Network(nn.Module):
-    def __init__(self, input_dims, output_dims, learning_rate):
+    def __init__(self, input_dim: tuple, output_dim: int, learning_rate: float) -> None:
         super(Network, self).__init__()
-        self.fc1 = nn.Linear(*input_dims, 16)
+        self.fc1 = nn.Linear(*input_dim, 16)
         self.fc2 = nn.Linear(16, 32)
         self.fc3 = nn.Linear(32, 16)
-        self.fc4 = nn.Linear(16, output_dims)
+        self.fc4 = nn.Linear(16, output_dim)
         self.optimizer = optim.Adam(self.parameters(), learning_rate)
         self.loss = nn.SmoothL1Loss()
     
-    def forward(self, state):
+    def forward(self, state: np.ndarray) -> torch.Tensor:
         return self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(state)))))))
 
 
-class Replay_Buffer:
-    def __init__(self, input_dims, buffer_size, batch_size):
+class ReplayBuffer:
+    def __init__(self, input_dim: tuple, buffer_size: int, batch_size: int) -> None:
         self.counter = 0
         self.cur_size = 0
-        self.input_dims = input_dims
+        self.input_dim = input_dim
         self.buffer_size = buffer_size
         self.batch_size = batch_size
-        self.state_memory = np.zeros((buffer_size, *input_dims), dtype = np.float32)
+        self.state_memory = np.zeros((buffer_size, *input_dim), dtype = np.float32)
         self.action_memory = np.zeros(buffer_size, dtype = np.int8)
         self.reward_memory = np.zeros(buffer_size, dtype = np.float32)
-        self.next_state_memory = np.zeros((buffer_size, *input_dims), dtype = np.float32)
+        self.next_state_memory = np.zeros((buffer_size, *input_dim), dtype = np.float32)
         self.terminal_state_memory = np.zeros(buffer_size, dtype = np.bool8)
     
-    def store(self, state, action, reward, next_state, is_done):
+    def store(self, state: np.ndarray, action: int, reward: float, next_state: np.ndarray, done: bool) -> None:
         self.state_memory[self.counter] = state
         self.action_memory[self.counter] = action
         self.reward_memory[self.counter] = reward
@@ -44,31 +45,31 @@ class Replay_Buffer:
         self.counter = (self.counter + 1) % self.buffer_size
         self.cur_size = min(self.cur_size + 1, self.buffer_size)
     
-    def sample_batch(self):
+    def sample_batch(self) -> Dict[str, np.ndarray]:
         batch_index = np.random.choice(self.buffer_size, self.batch_size, False)
-        batch_dict = dict()
-        batch_dict["state_batch"] = self.state_memory[batch_index]
-        batch_dict["action_batch"] = self.action_memory[batch_index]
-        batch_dict["reward_batch"] = self.reward_memory[batch_index]
-        batch_dict["next_state_batch"] = self.next_state_memory[batch_index]
-        batch_dict["terminal_state_batch"] = self.terminal_state_memory[batch_index]
-        return batch_dict
+        return dict(
+            state_batch = self.state_memory[batch_index],
+            action_batch = self.action_memory[batch_index],
+            reward_batch = self.reward_memory[batch_index],
+            next_state_batch = self.next_state_memory[batch_index],
+            terminal_state_batch = self.terminal_state_memory[batch_index]
+        )
     
-    def reset_buffer(self):
+    def reset_buffer(self) -> None:
         self.counter = 0
         self.cur_size = 0
-        self.state_memory = np.zeros((self.buffer_size, *self.input_dims), dtype = np.float32)
+        self.state_memory = np.zeros((self.buffer_size, *self.input_dim), dtype = np.float32)
         self.action_memory = np.zeros(self.buffer_size, dtype = np.int8)
         self.reward_memory = np.zeros(self.buffer_size, dtype = np.float32)
-        self.next_state_memory = np.zeros((self.buffer_size, *self.input_dims), dtype = np.float32)
+        self.next_state_memory = np.zeros((self.buffer_size, *self.input_dim), dtype = np.float32)
         self.terminal_state_memory = np.zeros(self.buffer_size, dtype = np.bool8)
     
-    def is_full(self):
+    def is_full(self) -> bool:
         return self.cur_size == self.buffer_size
 
 
-class Epsilon_Controller:
-    def __init__(self, epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence):
+class EpsilonController:
+    def __init__(self, epsilon: float, epsilon_decay_rate: str, minimum_epsilon: float, reward_target: int, reward_target_grow_rate: int, confidence: int) -> None:
         self.confidence = confidence
         self.confidence_stack = 0
         self.epsilon = epsilon
@@ -101,30 +102,30 @@ class Epsilon_Controller:
 
 
 class Agent:
-    def __init__(self, input_dims, output_dims, learning_rate, gamma, buffer_size, batch_size, epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence):
-        self.input_dims = input_dims
-        self.output_dims = output_dims
+    def __init__(self, input_dim: tuple, output_dim: int, learning_rate: float, gamma: float, buffer_size: int, batch_size: int, epsilon: float, epsilon_decay_rate: str, minimum_epsilon: float, reward_target: int, reward_target_grow_rate: int, confidence: int) -> None:
+        self.input_dim = input_dim
+        self.output_dim = output_dim
         self.learning_rate = learning_rate
         self.gamma = gamma
-        self.network = Network(input_dims, output_dims, learning_rate)
-        self.target_network = Network(input_dims, output_dims, learning_rate)
-        self.buffer = Replay_Buffer(input_dims, buffer_size, batch_size)
-        self.epsilon_controller = Epsilon_Controller(epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence)
+        self.network = Network(input_dim, output_dim, learning_rate)
+        self.target_network = Network(input_dim, output_dim, learning_rate)
+        self.buffer = ReplayBuffer(input_dim, buffer_size, batch_size)
+        self.epsilon_controller = EpsilonController(epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence)
         self.update_network()
     
-    def choose_action(self, state):
+    def choose_action(self, state: np.ndarray) -> int:
         if np.random.random() > self.epsilon_controller.epsilon:
             return self.network.forward(torch.tensor(np.array(state))).argmax().item()
         else:
-            return np.random.randint(self.output_dims)
+            return np.random.randint(self.output_dim)
     
-    def SHIN_choose_action(self, state):
+    def SHIN_choose_action(self, state: np.ndarray) -> int:
         return self.network.forward(torch.tensor(np.array(state))).argmax().item()
     
-    def update_network(self):
+    def update_network(self) -> None:
         self.target_network.load_state_dict(self.network.state_dict())
 
-    def learn(self, env):
+    def learn(self, env: gym.Env) -> int:
         batch = self.buffer.sample_batch()
         batch_indexes = np.arange(self.buffer.batch_size)
         state_batch = torch.tensor(batch.get("state_batch"), dtype = torch.float32)
@@ -151,7 +152,7 @@ class Agent:
         self.epsilon_controller.decay(score)
         return score
     
-    def test(self, env, n_games):
+    def test(self, env: gym.Env, n_games: int) -> None:
         for i in range(n_games):
             score = 0
             is_done = False
