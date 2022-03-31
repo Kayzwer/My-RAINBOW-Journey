@@ -189,7 +189,7 @@ if __name__ == "__main__":
             max_score_count += 1
             if max_score_count == stop_limit:
                 break
-        print(f"Iteration: {i + 1}, Epsilon: {agent.epsilon_controller.epsilon}, Last Game Score: {score} Current Target: {agent.epsilon_controller.reward_target}")
+        print(f"Iteration: {i + 1}, Epsilon: {agent.epsilon_controller.epsilon}, Last Game Score: {score}, Current Target: {agent.epsilon_controller.reward_target}")
         agent.buffer.reset_buffer()
         agent.update_network()
     with open("DQN_Agent.pickle", "wb") as f:
