@@ -48,6 +48,9 @@ class SegmentTree:
     
     def __getitem__(self, index: int) -> float:
         return self.tree[self.max_size + index]
+    
+    def __str__(self) -> str:
+        return self.tree.__str__()
 
 
 class SumSegmentTree(SegmentTree):
