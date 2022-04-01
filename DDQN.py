@@ -41,7 +41,7 @@ class ReplayBuffer:
         self.action_memory[self.counter] = action
         self.reward_memory[self.counter] = reward
         self.next_state_memory[self.counter] = next_state
-        self.terminal_state_memory[self.counter] = is_done
+        self.terminal_state_memory[self.counter] = done
         self.counter = (self.counter + 1) % self.buffer_size
         self.cur_size = min(self.cur_size + 1, self.buffer_size)
     
