@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import pickle
@@ -8,18 +7,31 @@ import time
 import gym
 
 
-class DDQN(nn.Module):
+class Dueling_DDQN(nn.Module):
     def __init__(self, input_dims, output_dims, learning_rate):
-        super(DDQN, self).__init__()
-        self.fc1 = nn.Linear(*input_dims, 16)
-        self.fc2 = nn.Linear(16, 32)
-        self.fc3 = nn.Linear(32, 16)
-        self.fc4 = nn.Linear(16, output_dims)
+        super(Dueling_DDQN, self).__init__()
+        self.feature_layer = nn.Sequential(
+            nn.Linear(*input_dims, 32),
+            nn.ReLU()
+        )
+        self.advantage_layer = nn.Sequential(
+            nn.Linear(32, 32),
+            nn.ReLU(),
+            nn.Linear(32, output_dims)
+        )
+        self.value_layer = nn.Sequential(
+            nn.Linear(32, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1)
+        )
         self.optimizer = optim.Adam(self.parameters(), learning_rate)
         self.loss = nn.MSELoss()
     
     def forward(self, state):
-        return self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(state.float())))))))
+        feature = self.feature_layer(state.float())
+        value = self.value_layer(feature)
+        advantage = self.advantage_layer(feature)
+        return value + advantage - advantage.mean(dim = -1, keepdim = True)
 
 
 class Replay_Buffer:
@@ -105,7 +117,7 @@ class Agent:
         self.learning_rate = learning_rate
         self.gamma = gamma
         self.tau = tau
-        self.network = DDQN(input_dims, output_dims, learning_rate)
+        self.network = Dueling_DDQN(input_dims, output_dims, learning_rate)
         self.target_network = self.network
         self.buffer = Replay_Buffer(input_dims, buffer_size, batch_size)
         self.epsilon_controller = Epsilon_Controller(epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence)
@@ -169,34 +181,35 @@ class Agent:
 
 if __name__ == "__main__":
     env = gym.make('CartPole-v1')
-    agent = Agent(env.observation_space.shape, env.action_space.n, learning_rate = 0.001, gamma = 0.99, tau = 0.05, buffer_size = 2048, batch_size = 1024, epsilon = 1.0, epsilon_decay_rate = "0.05", minimum_epsilon = 0.0, reward_target = 25, reward_target_grow_rate = 25, confidence = 3)
-    iteration = 100
-    epoch_to_learn_from_buffer = 128
-    score = 0
-    stop_limit = 3
-    max_count = 0
-    for i in range(iteration):
-        while not agent.buffer.is_full():
-            is_done = False
-            state = env.reset()
-            while not is_done:
-                action = agent.choose_action(state)
-                next_state, reward, is_done, _ = env.step(action)
-                agent.buffer.store(state, action, reward, next_state, is_done)
-                state = next_state
-        for _ in range(epoch_to_learn_from_buffer):
-            score = agent.learn(env)
-            agent.update_network()
-        print(f"Iteration: {i + 1}, Epsilon: {agent.epsilon_controller.epsilon}, Current Target: {agent.epsilon_controller.reward_target}, Last Game Score: {score}")
-        agent.buffer.reset_buffer()
-        if score == 500:
-            max_count += 1
-            if max_count == stop_limit:
-                break
-        else:
-          max_count = 0
-    with open("DDQN_Agent.pickle", "wb") as f:
-        pickle.dump(agent, f)
-    # with open("DDQN_Agent.pickle", "rb") as f:
-    #     agent = pickle.load(f)
-    # agent.test(env, 3)
+    # agent = Agent(env.observation_space.shape, env.action_space.n, learning_rate = 0.001, gamma = 0.99, tau = 0.05, buffer_size = 2048, batch_size = 1024, epsilon = 1.0, epsilon_decay_rate = "0.05", minimum_epsilon = 0.0, reward_target = 25, reward_target_grow_rate = 25, confidence = 3)
+    # iteration = 100
+    # epoch_to_learn_from_buffer = 128
+    # score = 0
+    # stop_limit = 3
+    # max_count = 0
+    # for i in range(iteration):
+    #     while not agent.buffer.is_full():
+    #         is_done = False
+    #         state = env.reset()
+    #         while not is_done:
+    #             action = agent.choose_action(state)
+    #             next_state, reward, is_done, _ = env.step(action)
+    #             agent.buffer.store(state, action, reward, next_state, is_done)
+    #             state = next_state
+    #     for _ in range(epoch_to_learn_from_buffer):
+    #         score = agent.learn(env)
+    #         agent.update_network()
+    #     print(f"Iteration: {i + 1}, Epsilon: {agent.epsilon_controller.epsilon}, Current Target: {agent.epsilon_controller.reward_target}, Last Game Score: {score}")
+    #     agent.buffer.reset_buffer()
+    #     if score == 500:
+    #         max_count += 1
+    #         if max_count == stop_limit:
+    #             break
+    #     else:
+    #       max_count = 0
+    # with open("Dueling_DDQN_Agent.pickle", "wb") as f:
+    #     pickle.dump(agent, f)
+    with open("Dueling_DDQN_Agent.pickle", "rb") as f:
+        agent = pickle.load(f)
+    agent.test(env, 3)
+  
