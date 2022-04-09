@@ -135,8 +135,7 @@ class Agent:
         self.network.zero_grad()
         Q_Pred = self.network.forward(state_batch)[batch_index, action_batch]
         Q_Next = self.target_network.forward(next_state_batch)
-        Q_Next[terminal_state_batch] = 0.0
-        Q_Target = reward_batch + self.gamma * Q_Next
+        Q_Target = reward_batch + self.gamma * Q_Next * ~terminal_state_batch
         loss = self.network.loss(Q_Pred, Q_Target)
         loss.backward()
         self.network.optimizer.step()
