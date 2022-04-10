@@ -106,10 +106,12 @@ class Agent:
         self.gamma = gamma
         self.tau = tau
         self.network = DDQN(input_dims, output_dims, learning_rate)
-        self.target_network = self.network
+        self.target_network = DDQN(input_dims, output_dims, learning_rate)
         self.buffer = Replay_Buffer(input_dims, buffer_size, batch_size)
         self.epsilon_controller = Epsilon_Controller(epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence)
     
+        self.target_network.load_state_dict(self.network.state_dict())
+
     def choose_action(self, state):
         if np.random.random() > self.epsilon_controller.epsilon:
             return torch.argmax(self.network.forward(torch.tensor(state))).item()

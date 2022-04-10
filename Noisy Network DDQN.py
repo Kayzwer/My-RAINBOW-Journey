@@ -1,4 +1,5 @@
 import numpy as np
+import time
 import math
 import torch
 import torch.nn as nn
@@ -145,4 +146,73 @@ class NoisyNetwork(nn.Module):
 
 
 class Agent:
-    pass
+    def __init__(self, input_dims, output_dims, learning_rate, gamma, tau, buffer_size, batch_size, epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence):
+        self.input_dims = input_dims
+        self.output_dims = output_dims
+        self.learning_rate = learning_rate
+        self.gamma = gamma
+        self.tau = tau
+        self.network = NoisyNetwork(input_dims, output_dims, learning_rate)
+        self.target_network = NoisyNetwork(input_dims, output_dims, learning_rate)
+        self.buffer = Replay_Buffer(input_dims, buffer_size, batch_size)
+        self.epsilon_controller = Epsilon_Controller(epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence)
+    
+        self.target_network.load_state_dict(self.network.state_dict())
+
+    def choose_action(self, state):
+        if np.random.random() > self.epsilon_controller.epsilon:
+            return torch.argmax(self.network.forward(torch.tensor(state))).item()
+        else:
+            return np.random.choice(self.output_dims)
+    
+    def SHIN_choose_action(self, state):
+        return torch.argmax(self.network.forward(torch.tensor(state))).item()
+    
+    def update_network(self):
+        for target_network_param, network_param in zip(self.target_network.parameters(), self.network.parameters()):
+            target_network_param.data.copy_(self.tau * network_param + (1 - self.tau) * target_network_param)
+
+    def learn(self, env):
+        batch = self.buffer.sample_batch()
+        batch_index = np.arange(self.buffer.batch_size, dtype = np.longlong)
+        state_batch = batch.get("state_batch")
+        action_batch = batch.get("action_batch")
+        reward_batch = batch.get("reward_batch")
+        next_state_batch = batch.get("next_state_batch")
+        terminal_state_batch = batch.get("terminal_state_batch")
+
+        self.network.zero_grad()
+        Q_Pred = self.network.forward(state_batch)[batch_index, action_batch]
+        Q_Next = self.target_network.forward(next_state_batch)
+        Argmax_action = torch.argmax(self.network.forward(next_state_batch), dim = 1)
+        Q_Target = reward_batch + self.gamma * Q_Next[batch_index, Argmax_action] * ~terminal_state_batch
+        loss = self.network.loss(Q_Pred, Q_Target)
+        loss.backward()
+        self.network.optimizer.step()
+        self.network.reset_noise()
+        self.target_network.reset_noise()
+
+        score = 0
+        is_done = False
+        state = env.reset()
+        while not is_done:
+            action = self.SHIN_choose_action(state)
+            state, reward, is_done, _ = env.step(action)
+            score += reward
+        self.epsilon_controller.decay(score)
+        return score
+    
+    def test(self, env, n_games):
+        for i in range(n_games):
+            score = 0
+            is_done = False
+            state = env.reset()
+            while not is_done:
+                time.sleep(0.01)
+                env.render()
+                action = self.SHIN_choose_action(state)
+                state, reward, is_done, _ = env.step(action)
+                score += reward
+            print(f"Game: {i + 1}, Score: {score}")
+        env.close()
+
