@@ -83,6 +83,7 @@ class Epsilon_Controller:
             else:
                 self.epsilon = round(self.epsilon - self.epsilon_decay_rate, self.deci_place) if self.epsilon > self.minimum_epsilon else self.minimum_epsilon
                 self.reward_target += self.reward_target_grow_rate
+                self.confidence_count = 0
         else:
             self.confidence_count = 0
     
@@ -174,7 +175,7 @@ if __name__ == "__main__":
     iteration = 100
     epoch_to_learn_from_buffer = 128
     score = 0
-    stop_limit = 3
+    stop_limit = 5
     max_count = 0
     for i in range(iteration):
         while not agent.buffer.is_full():
@@ -188,14 +189,14 @@ if __name__ == "__main__":
         for _ in range(epoch_to_learn_from_buffer):
             score = agent.learn(env)
             agent.update_network()
-        print(f"Iteration: {i + 1}, Epsilon: {agent.epsilon_controller.epsilon}, Current Target: {agent.epsilon_controller.reward_target}, Last Game Score: {score}")
+            if score == 500:
+                max_count += 1
+                if max_count == stop_limit:
+                    break
+            else:
+                max_count = 0
         agent.buffer.reset_buffer()
-        if score == 500:
-            max_count += 1
-            if max_count == stop_limit:
-                break
-        else:
-          max_count = 0
+        print(f"Iteration: {i + 1}, Epsilon: {agent.epsilon_controller.epsilon}, Current Target: {agent.epsilon_controller.reward_target}, Last Game Score: {score}")
     with open("DDQN_Agent.pickle", "wb") as f:
         pickle.dump(agent, f)
     # with open("DDQN_Agent.pickle", "rb") as f:

@@ -95,6 +95,7 @@ class Epsilon_Controller:
             else:
                 self.epsilon = round(self.epsilon - self.epsilon_decay_rate, self.deci_place) if self.epsilon > self.minimum_epsilon else self.minimum_epsilon
                 self.reward_target += self.reward_target_grow_rate
+                self.confidence_count = 0
         else:
             self.confidence_count = 0
     

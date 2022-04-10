@@ -1,7 +1,9 @@
-import numpy as np
+import gym
 import time
 import math
 import torch
+import pickle
+import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
@@ -146,18 +148,16 @@ class NoisyNetwork(nn.Module):
 
 
 class Agent:
-    def __init__(self, input_dims, output_dims, learning_rate, gamma, tau, buffer_size, batch_size, epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence):
+    def __init__(self, input_dims, output_dims, learning_rate, gamma, buffer_size, batch_size, epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence):
         self.input_dims = input_dims
         self.output_dims = output_dims
         self.learning_rate = learning_rate
         self.gamma = gamma
-        self.tau = tau
         self.network = NoisyNetwork(input_dims, output_dims, learning_rate)
         self.target_network = NoisyNetwork(input_dims, output_dims, learning_rate)
         self.buffer = Replay_Buffer(input_dims, buffer_size, batch_size)
         self.epsilon_controller = Epsilon_Controller(epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence)
-    
-        self.target_network.load_state_dict(self.network.state_dict())
+        self.update_network()
 
     def choose_action(self, state):
         if np.random.random() > self.epsilon_controller.epsilon:
@@ -169,8 +169,7 @@ class Agent:
         return torch.argmax(self.network.forward(torch.tensor(state))).item()
     
     def update_network(self):
-        for target_network_param, network_param in zip(self.target_network.parameters(), self.network.parameters()):
-            target_network_param.data.copy_(self.tau * network_param + (1 - self.tau) * target_network_param)
+        self.target_network.load_state_dict(self.network.state_dict())
 
     def learn(self, env):
         batch = self.buffer.sample_batch()
@@ -216,3 +215,34 @@ class Agent:
             print(f"Game: {i + 1}, Score: {score}")
         env.close()
 
+
+if __name__ == "__main__":
+    env = gym.make('CartPole-v1')
+    agent = Agent(env.observation_space.shape, env.action_space.n, learning_rate = 0.001, gamma = 0.99, buffer_size = 2048, batch_size = 1024, epsilon = 1.0, epsilon_decay_rate = "0.05", minimum_epsilon = 0.0, reward_target = 25, reward_target_grow_rate = 25, confidence = 3)
+    iteration = 100
+    epoch_to_learn_from_buffer = 128
+    score = 0
+    stop_limit = 5
+    max_count = 0
+    for i in range(iteration):
+        while not agent.buffer.is_full():
+            is_done = False
+            state = env.reset()
+            while not is_done:
+                action = agent.choose_action(state)
+                next_state, reward, is_done, _ = env.step(action)
+                agent.buffer.store(state, action, reward, next_state, is_done)
+                state = next_state
+        for _ in range(epoch_to_learn_from_buffer):
+            score = agent.learn(env)
+            if score == 500:
+                max_count += 1
+                if max_count == stop_limit:
+                    break
+            else:
+                max_count = 0
+        agent.update_network()
+        agent.buffer.reset_buffer()
+        print(f"Iteration: {i + 1}, Epsilon: {agent.epsilon_controller.epsilon}, Current Target: {agent.epsilon_controller.reward_target}, Last Game Score: {score}")
+    with open("Noisy_Net_DDQN_Agent.pickle", "wb") as f:
+        pickle.dump(agent, f)
