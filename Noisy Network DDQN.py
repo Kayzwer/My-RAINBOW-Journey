@@ -241,6 +241,8 @@ if __name__ == "__main__":
                     break
             else:
                 max_count = 0
+        if max_count == stop_limit:
+            break
         agent.update_network()
         agent.buffer.reset_buffer()
         print(f"Iteration: {i + 1}, Epsilon: {agent.epsilon_controller.epsilon}, Current Target: {agent.epsilon_controller.reward_target}, Last Game Score: {score}")
