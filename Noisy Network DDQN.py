@@ -230,7 +230,7 @@ if __name__ == "__main__":
             is_done = False
             state = env.reset()
             while not is_done:
-                action = agent.SHIN_choose_action(state)
+                action = agent.choose_action(state)
                 next_state, reward, is_done, _ = env.step(action)
                 agent.buffer.store(state, action, reward, next_state, is_done)
                 state = next_state
