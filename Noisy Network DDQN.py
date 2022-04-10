@@ -70,6 +70,7 @@ class Epsilon_Controller:
             else:
                 self.epsilon = round(self.epsilon - self.epsilon_decay_rate, self.deci_place) if self.epsilon > self.minimum_epsilon else self.minimum_epsilon
                 self.reward_target += self.reward_target_grow_rate
+                self.confidence_count = 0
         else:
             self.confidence_count = 0
     
@@ -133,14 +134,14 @@ class NoisyLinear(nn.Module):
 class NoisyNetwork(nn.Module):
     def __init__(self, input_dim, output_dim, learning_rate):
         super(NoisyNetwork, self).__init__()
-        self.feature = nn.Linear(input_dim, 32)
-        self.noisy_layer1 = NoisyLinear(32, 32)
-        self.noisy_layer2 = NoisyLinear(32, output_dim)
+        self.feature = nn.Linear(*input_dim, 64)
+        self.noisy_layer1 = NoisyLinear(64, 64)
+        self.noisy_layer2 = NoisyLinear(64, output_dim)
         self.optimizer = optim.Adam(self.parameters(), lr = learning_rate)
         self.loss = nn.SmoothL1Loss()
     
     def forward(self, x):
-        return self.noisy_layer2(F.mish(self.noisy_layer1(F.mish(self.feature(x)))))
+        return self.noisy_layer2(F.mish(self.noisy_layer1(F.mish(self.feature(x.float())))))
     
     def reset_noise(self):
         self.noisy_layer1.reset_noise()
@@ -218,18 +219,18 @@ class Agent:
 
 if __name__ == "__main__":
     env = gym.make('CartPole-v1')
-    agent = Agent(env.observation_space.shape, env.action_space.n, learning_rate = 0.001, gamma = 0.99, buffer_size = 2048, batch_size = 1024, epsilon = 1.0, epsilon_decay_rate = "0.05", minimum_epsilon = 0.0, reward_target = 25, reward_target_grow_rate = 25, confidence = 3)
+    agent = Agent(env.observation_space.shape, env.action_space.n, learning_rate = 0.001, gamma = 0.99, buffer_size = 2048, batch_size = 1024, epsilon = 1.0, epsilon_decay_rate = "0.05", minimum_epsilon = 0.0, reward_target = 25, reward_target_grow_rate = 25, confidence = 2)
     iteration = 100
     epoch_to_learn_from_buffer = 128
     score = 0
-    stop_limit = 5
+    stop_limit = 2
     max_count = 0
     for i in range(iteration):
         while not agent.buffer.is_full():
             is_done = False
             state = env.reset()
             while not is_done:
-                action = agent.choose_action(state)
+                action = agent.SHIN_choose_action(state)
                 next_state, reward, is_done, _ = env.step(action)
                 agent.buffer.store(state, action, reward, next_state, is_done)
                 state = next_state
@@ -242,9 +243,12 @@ if __name__ == "__main__":
             else:
                 max_count = 0
         if max_count == stop_limit:
-            break
+          break
         agent.update_network()
         agent.buffer.reset_buffer()
         print(f"Iteration: {i + 1}, Epsilon: {agent.epsilon_controller.epsilon}, Current Target: {agent.epsilon_controller.reward_target}, Last Game Score: {score}")
     with open("Noisy_Net_DDQN_Agent.pickle", "wb") as f:
         pickle.dump(agent, f)
+    with open("Noisy_Net_DDQN_Agent.pickle", "rb") as f:
+        agent = pickle.load(f)
+    agent.test(env, 3)
