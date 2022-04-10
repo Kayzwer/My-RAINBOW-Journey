@@ -223,7 +223,7 @@ if __name__ == "__main__":
     iteration = 100
     epoch_to_learn_from_buffer = 128
     score = 0
-    stop_limit = 2
+    stop_limit = 5
     max_count = 0
     for i in range(iteration):
         while not agent.buffer.is_full():
