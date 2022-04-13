@@ -200,6 +200,6 @@ if __name__ == "__main__":
         print(f"Iteration: {i + 1}, Epsilon: {agent.epsilon_controller.epsilon}, Current Target: {agent.epsilon_controller.reward_target}, Last Game Score: {score}")
     with open("DQN_Agent.pickle", "wb") as f:
         pickle.dump(agent, f)
-    # with open("DDQN_Agent.pickle", "rb") as f:
+    # with open("DQN_Agent.pickle", "rb") as f:
     #     agent = pickle.load(f)
     # agent.test(env, 3)
