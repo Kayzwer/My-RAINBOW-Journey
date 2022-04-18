@@ -176,38 +176,3 @@ class Agent:
         self.Q_Network.optimizer.zero_grad()
         loss.backward()
         self.Q_Network.optimizer.step()
-
-
-if __name__ == "__main__":
-    env = gym.make('CartPole-v1')
-    agent = Agent(
-        env.observation_space.shape,
-        env.action_space.n,
-        51, 500.0, 0, 0.001, 0.99, 0.05, 3, 3, 1.0, "0.005",
-        0.0, 25, 25, 3
-    )
-
-    state = env.reset()
-    done = False
-    while not done:
-        action = agent.choose_action(state)
-        next_state, reward, done, _ = env.step(action)
-        agent.Replay_Buffer.store(state, action, reward, next_state, done)
-        if agent.Replay_Buffer.is_full():
-            break
-    
-    batch = agent.Replay_Buffer.sample_batch()
-    states = batch.get("state_batch")
-    actions = batch.get("action_batch")
-    rewards = batch.get("reward_batch")
-    next_states = batch.get("next_state_batch")
-    terminal_states = batch.get("terminal_state_batch")
-
-    print("d_z: ")
-    print((agent.max_score - agent.min_score) / (agent.Q_Network.atom_size - 1))
-
-    print("next state dist")
-    next_dist = agent.Q_Target_Network.dist(next_states)
-    next_action = next_dist.argmax(1)[0]
-    next_dist = next_dist
-    print(next_dist)
