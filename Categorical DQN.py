@@ -260,7 +260,7 @@ class DQNAgent:
                 # if hard update is needed
                 if update_cnt % self.target_update == 0:
                     self._target_hard_update()
-            print(f"Iteration: {frame_idx}")
+            print(f"Iteration: {frame_idx + 1}")
         self.env.close()
 
     def _compute_dqn_loss(self, samples: Dict[str, np.ndarray]) -> torch.Tensor:
