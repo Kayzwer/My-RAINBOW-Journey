@@ -147,7 +147,7 @@ class Agent:
 
         with torch.no_grad():
             next_action = self.Q_Target_Network.forward(next_states).argmax(1)
-            next_dist = self.Q_Target_Network.dist(next_states)[np.arange(agent.Replay_Buffer.batch_size), next_action]
+            next_dist = self.Q_Target_Network.dist(next_states)[np.arange(self.Replay_Buffer.batch_size), next_action]
 
             T_z = (rewards + self.gamma * self.Q_Network.support * ~terminal_states).clamp(min = self.min_score, max = self.max_score)
             B = (T_z - self.min_score) / d_z
