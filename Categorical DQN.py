@@ -1,9 +1,39 @@
-import gym
-import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
+import torch.optim as optim
+import numpy as np
+import pickle
+import time
+import gym
+
+
+class Network(nn.Module):
+    def __init__(self, input_dims, output_dims, atom_size, learning_rate, support) -> None:
+        super(Network, self).__init__()
+        self.support = support
+        self.output_dims = output_dims
+        self.atom_size = atom_size
+
+        self.layers = nn.Sequential(
+            nn.Linear(input_dims, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, output_dims * atom_size)
+        )
+        self.optimizer = optim.Adam(self.parameters(), learning_rate)
+    
+    def forward(self, x):
+        dist = self.dist(x)
+        q = torch.sum(dist * self.support, dim = 2)
+        return q
+    
+    def dist(self, x):
+        q_atoms = self.layers.forward(x).view(-1, self.output_dims, self.atom_size)
+        dist = F.softmax(q_atoms, dim = -1)
+        dist = dist.clamp(min = 1e-3)
+        return dist
 
 
 class Replay_Buffer:
@@ -83,96 +113,97 @@ class Epsilon_Controller:
         return count
 
 
-class Network(nn.Module):
-    def __init__(self, input_dims, output_dims, atom_size, max_score, learning_rate):
-        super(Network, self).__init__()
-        self.support = torch.linspace(0.0, max_score, atom_size)
-        self.output_dims = output_dims
-        self.max_score = max_score
-        self.atom_size = atom_size
-        self.loss = nn.MSELoss()
-        self.layers = nn.Sequential(
-            nn.Linear(*input_dims, 32),
-            nn.ReLU(),
-            nn.Linear(32, 32),
-            nn.ReLU(),
-            nn.Linear(32, output_dims * atom_size)
-        )
-        self.optimizer = optim.Adam(self.parameters(), learning_rate)
-    
-    def dist(self, x):
-        q_atoms = self.layers.forward(x).view(-1, self.output_dims, self.atom_size)
-        return F.softmax(q_atoms, dim = -1).clamp(min = 1e-3)
-    
-    def forward(self, x):
-        return torch.sum(self.dist(x) * self.support, dim = 2)
-
-
 class Agent:
-    def __init__(self, input_dims, output_dims, atom_size, max_score, min_score, learning_rate, gamma, tau, buffer_size, batch_size, epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence):
-        self.Q_Network = Network(input_dims, output_dims, atom_size, max_score, learning_rate)
-        self.Q_Target_Network = Network(input_dims, output_dims, atom_size, max_score, learning_rate)
+    def __init__(self, input_dims, output_dims, atom_size, v_min, v_max, learning_rate, gamma, tau, buffer_size, batch_size, epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence):
+        self.input_dims = input_dims
+        self.output_dims = output_dims
+        self.learning_rate = learning_rate
         self.gamma = gamma
         self.tau = tau
-        self.output_dims = output_dims
-        self.max_score = max_score
-        self.min_score = min_score
-        self.Replay_Buffer = Replay_Buffer(input_dims, buffer_size, batch_size)
-        self.Epsilon_Controller = Epsilon_Controller(epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence)
+        self.v_min = v_min
+        self.v_max = v_max
+        self.network = Network(input_dims, output_dims, learning_rate, atom_size)
+        self.target_network = Network(input_dims, output_dims, learning_rate, atom_size)
+        self.buffer = Replay_Buffer(input_dims, buffer_size, batch_size)
+        self.epsilon_controller = Epsilon_Controller(epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence)
+        self.support = torch.linspace(v_min, v_max, atom_size)
+        self.target_network.load_state_dict(self.network.state_dict())
 
-        self.Q_Target_Network.load_state_dict(self.Q_Network.state_dict())
-    
     def choose_action(self, state):
-        if np.random.random() > self.Epsilon_Controller.epsilon:
-            return self.Q_Network.forward(torch.tensor(state)).argmax().item()
+        if np.random.random() > self.epsilon_controller.epsilon:
+            return torch.argmax(self.network.forward(torch.tensor(state))).item()
         else:
             return np.random.choice(self.output_dims)
     
     def SHIN_choose_action(self, state):
-        return self.Q_Network.forward(torch.tensor(state)).argmax().item()
+        return torch.argmax(self.network.forward(torch.tensor(state))).item()
     
     def update_network(self):
-        for target_network_param, network_param in zip(self.Q_Target_Network.parameters(), self.Q_Network.parameters()):
+        for target_network_param, network_param in zip(self.target_network.parameters(), self.network.parameters()):
             target_network_param.data.copy_(self.tau * network_param + (1 - self.tau) * target_network_param)
 
-    def learn(self):
-        batch = self.Replay_Buffer.sample_batch()
-        states = batch.get("state_batch")
-        actions = batch.get("action_batch")
-        rewards = batch.get("reward_batch")
-        next_states = batch.get("next_state_batch")
-        terminal_states = batch.get("terminal_state_batch")
+    def learn(self, env):
+        batch = self.buffer.sample_batch()
+        state_batch = batch.get("state_batch")
+        action_batch = batch.get("action_batch")
+        reward_batch = batch.get("reward_batch")
+        next_state_batch = batch.get("next_state_batch")
+        terminal_state_batch = batch.get("terminal_state_batch")
 
-        d_z = float(self.max_score - self.min_score) / (self.Q_Network.atom_size - 1)
-
+        self.network.zero_grad()
+        delta_z = (self.v_max - self.v_min) / (self.network.atom_size - 1)
         with torch.no_grad():
-            next_action = self.Q_Target_Network.forward(next_states).argmax(1)
-            next_dist = self.Q_Target_Network.dist(next_states)[np.arange(self.Replay_Buffer.batch_size), next_action]
+            next_action = self.target_network.forward(next_state_batch).argmax(1)
+            next_dist = self.target_network.dist(next_state_batch)
+            next_dist = next_dist[range(self.buffer.batch_size), next_action]
 
-            T_z = (rewards + self.gamma * self.Q_Network.support * ~terminal_states).clamp(min = self.min_score, max = self.max_score)
-            B = (T_z - self.min_score) / d_z
-            lower_bound = B.floor().long()
-            upper_bound = B.ceil().long()
+            t_z = reward_batch + ~terminal_state_batch * self.gamma * self.support
+            t_z.clamp(min = self.v_min, max = self.v_max)
+            b = (t_z - self.v_min) / delta_z
+            l = b.floor().long()
+            u = b.ceil().long()
 
             offset = (
                 torch.linspace(
-                    0, (self.Replay_Buffer.batch_size - 1) * self.Q_Network.atom_size, self.Replay_Buffer.batch_size
-                    ).long()
-                    .unsqueeze(1)
-                    .expand(self.Replay_Buffer.batch_size, self.Q_Network.atom_size)
+                    0, (self.buffer.batch_size - 1) * self.network.atom_size, self.buffer.batch_size
+                ).long()
+                .unsqueeze(1)
+                .expand(self.buffer.batch_size, self.network.atom_size)
             )
 
             proj_dist = torch.zeros(next_dist.size())
             proj_dist.view(-1).index_add_(
-                0, (lower_bound + offset).view(-1), (next_dist * (upper_bound.float() - B)).view(-1)
+                0, (l + offset).view(-1), (next_dist * (u.float() - b)).view(-1)
             )
             proj_dist.view(-1).index_add_(
-                0, (upper_bound + offset).view(-1), (next_dist * (B - lower_bound.float())).view(-1)
+                0, (u + offset).view(-1), (next_dist * (b - l.float())).view(-1)
             )
-        dist = self.Q_Network.dist(states)
-        log_p = torch.log(dist[np.arange(self.Replay_Buffer.batch_size), actions])
-        loss = -(proj_dist * log_p).sum(1).mean()
-        
-        self.Q_Network.optimizer.zero_grad()
+        dist = self.network.dist(state_batch)
+        log_p = torch.log(dist[range(self.buffer.batch_size), action_batch])
+        loss = -(proj_dist * log_p).sum(dim = 1).mean()
         loss.backward()
-        self.Q_Network.optimizer.step()
+        self.network.optimizer.step()
+    
+        score = 0
+        is_done = False
+        state = env.reset()
+        while not is_done:
+            action = self.SHIN_choose_action(state)
+            state, reward, is_done, _ = env.step(action)
+            score += reward
+        self.epsilon_controller.decay(score)
+        return score
+
+    def test(self, env, n_games):
+        for i in range(n_games):
+            score = 0
+            is_done = False
+            state = env.reset()
+            while not is_done:
+                time.sleep(0.01)
+                env.render()
+                action = self.SHIN_choose_action(state)
+                state, reward, is_done, _ = env.step(action)
+                score += reward
+            print(f"Game: {i + 1}, Score: {score}")
+        env.close()
