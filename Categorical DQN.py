@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import pickle
 import gym
 
 
@@ -225,9 +226,6 @@ class DQNAgent:
         
         state = self.env.reset()
         update_cnt = 0
-        epsilons = []
-        losses = []
-        scores = []
         score = 0
 
         for frame_idx in range(1, num_frames + 1):
@@ -240,13 +238,11 @@ class DQNAgent:
             # if episode ends
             if done:
                 state = self.env.reset()
-                scores.append(score)
                 score = 0
 
             # if training is ready
             if len(self.memory) >= self.batch_size:
                 loss = self.update_model()
-                losses.append(loss)
                 update_cnt += 1
                 
                 # linearly decrease epsilon
@@ -255,12 +251,11 @@ class DQNAgent:
                         self.max_epsilon - self.min_epsilon
                     ) * self.epsilon_decay
                 )
-                epsilons.append(self.epsilon)
                 
                 # if hard update is needed
                 if update_cnt % self.target_update == 0:
                     self._target_hard_update()
-            print(f"Iteration: {frame_idx + 1}")
+            print(f"Iteration: {frame_idx}")
         self.env.close()
 
     def _compute_dqn_loss(self, samples: Dict[str, np.ndarray]) -> torch.Tensor:
@@ -325,6 +320,9 @@ if __name__ == "__main__":
     # train
     agent = DQNAgent(env, memory_size, batch_size, target_update, epsilon_decay)
     agent.train(num_frames)
+
+    with open("Categorical_DQN_Agent.pickle", "wb") as f:
+        pickle.dump(agent, f)
 
     state = env.reset()
     done = False
