@@ -1,3 +1,4 @@
+from typing import Dict
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -8,7 +9,7 @@ import gym
 
 
 class Categorical_DQN(nn.Module):
-    def __init__(self, input_dim, output_dim, learning_rate, atom_size, support) -> None:
+    def __init__(self, input_dim: tuple, output_dim: int, learning_rate: float, atom_size: int, support: torch.Tnesor) -> None:
         super(Categorical_DQN, self).__init__()
         self.support = support
         self.output_dim = output_dim
@@ -22,23 +23,23 @@ class Categorical_DQN(nn.Module):
         )
         self.optimizer = optim.Adam(self.parameters(), learning_rate)
     
-    def dist(self, x):
+    def dist(self, x: torch.Tensor) -> torch.Tensor:
         q_atoms = self.layers.forward(x.float()).view(-1, self.output_dim, self.atom_size)
         dist = F.softmax(q_atoms, dim = -1).clamp(min = 1e-3)
         return dist
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.sum(self.dist(x) * self.support, dim = 2)
 
 
 class Epsilon_Controller:
-    def __init__(self, epsilon, epsilon_decay_rate, minimum_epsilon):
+    def __init__(self, epsilon: float, epsilon_decay_rate: str, minimum_epsilon: float) -> None:
         self.epsilon = epsilon
         self.epsilon_decay_rate = epsilon_decay_rate
         self.minimum_epsilon = minimum_epsilon
         self.deci_place = self._get_deci_place()
     
-    def decay(self):
+    def decay(self) -> None:
           self.epsilon = round(self.epsilon - self.epsilon_decay_rate, self.deci_place) if self.epsilon > self.minimum_epsilon else self.minimum_epsilon
 
     def _get_deci_place(self) -> int:
@@ -54,7 +55,7 @@ class Epsilon_Controller:
 
 
 class Replay_Buffer:
-    def __init__(self, input_dim, buffer_size, batch_size):
+    def __init__(self, input_dim: tuple, buffer_size: int, batch_size: int) -> None:
         self.counter = 0
         self.buffer_size = buffer_size
         self.batch_size = batch_size
@@ -64,7 +65,7 @@ class Replay_Buffer:
         self.next_state_memory = np.zeros((buffer_size, *input_dim), dtype = np.float32)
         self.terminal_state_memory = np.zeros(buffer_size, dtype = np.bool8)
     
-    def store(self, state, action, reward, next_state, done):
+    def store(self, state: np.ndarray, action: int, reward: float, next_state: np.ndarray, done: bool) -> None:
         self.state_memory[self.counter] = state
         self.action_memory[self.counter] = action
         self.reward_memory[self.counter] = reward
@@ -72,7 +73,7 @@ class Replay_Buffer:
         self.terminal_state_memory[self.counter] = done
         self.counter = (self.counter + 1) % self.buffer_size
     
-    def sample_batch(self):
+    def sample_batch(self) -> Dict[str, torch.Tensor]:
         batch_index = np.random.choice(self.buffer_size, self.batch_size, False)
         return dict(
             state_batch = torch.tensor(self.state_memory[batch_index], dtype = torch.float32),
@@ -82,7 +83,7 @@ class Replay_Buffer:
             terminal_state_batch = torch.tensor(self.terminal_state_memory[batch_index], dtype = torch.bool)
         )
     
-    def reset_buffer(self):
+    def reset_buffer(self) -> None:
         self.counter = 0
         self.state_memory.fill(0)
         self.action_memory.fill(0)
@@ -90,15 +91,15 @@ class Replay_Buffer:
         self.next_state_memory.fill(0)
         self.terminal_state_memory.fill(0)
     
-    def is_full(self):
+    def is_full(self) -> bool:
         return self.counter >= self.buffer_size
     
-    def is_ready(self):
+    def is_ready(self) -> bool:
         return self.counter >= self.batch_size
 
 
 class Agent:
-    def __init__(self, input_dim, output_dim, learning_rate, atom_size, v_min, v_max, gamma, buffer_size, batch_size, epsilon, epsilon_decay_rate, minimum_epsilon, update_target):
+    def __init__(self, input_dim: tuple, output_dim: int, learning_rate: float, atom_size: int, v_min: float, v_max: float, gamma: float, buffer_size: int, batch_size: int, epsilon: float, epsilon_decay_rate: str, minimum_epsilon: float, update_target: int) -> None:
         self.v_min = v_min
         self.v_max = v_max
         self.support = torch.linspace(
@@ -115,19 +116,19 @@ class Agent:
 
         self.update_target_network()
     
-    def update_target_network(self):
+    def update_target_network(self) -> None:
         self.target_network.load_state_dict(self.network.state_dict())
     
-    def choose_action_train(self, state):
+    def choose_action_train(self, state: np.ndarray) -> int:
         if np.random.random() < self.epsilon_controller.epsilon:
             return np.random.choice(self.output_dim)
         else:
             return self.network.forward(torch.tensor(state)).argmax().item()
     
-    def choose_action_test(self, state):
+    def choose_action_test(self, state: np.ndarray) -> int:
         return self.network.forward(torch.tensor(state)).argmax().item()
 
-    def train(self):
+    def train(self) -> float:
         batch = self.replay_buffer.sample_batch()
         batch_index = range(self.replay_buffer.batch_size)
         states = batch.get("state_batch")
@@ -173,7 +174,7 @@ class Agent:
         self.epsilon_controller.decay()
         return loss
     
-    def test(self, n_game, env):
+    def test(self, n_game: int, env: gym.Env) -> None:
         for i in range(n_game):
             state = env.reset()
             done = False

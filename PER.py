@@ -219,8 +219,7 @@ class Network(nn.Module):
 
 
 class EpsilonController:
-    def __init__(self, epsilon: float, epsilon_decay_rate: str, minimum_epsilon: float, reward_target: int, reward_target_grow_rate: int, confidence: int) -> None:
-        self.confidence = confidence
+    def __init__(self, epsilon: float, epsilon_decay_rate: str, minimum_epsilon: float, reward_target: int, reward_target_grow_rate: int) -> None:
         self.confidence_stack = 0
         self.epsilon = epsilon
         self.epsilon_decay_rate = epsilon_decay_rate
@@ -240,15 +239,7 @@ class EpsilonController:
         self.epsilon_decay_rate = float(self.epsilon_decay_rate)
         return count
     
-    def decay(self, last_game_score: float) -> None:
-        # if last_game_score >= self.reward_target:
-        #     self.confidence_stack += 1
-        #     if self.confidence_stack == self.confidence:
-        #         self.epsilon = round(self.epsilon - self.epsilon_decay_rate, self.deci_place) if self.epsilon > self.minimum_epsilon else self.minimum_epsilon
-        #         self.reward_target += self.reward_target_grow_rate
-        #         self.confidence_stack = 0
-        # else:
-        #     self.confidence_stack = 0
+    def decay(self) -> None:
         self.epsilon = round(self.epsilon - self.epsilon_decay_rate, self.deci_place) if self.epsilon > self.minimum_epsilon else self.minimum_epsilon
 
 
@@ -269,15 +260,14 @@ class Agent:
         epsilon_decay_rate: str, 
         minimum_epsilon: float, 
         reward_target: int, 
-        reward_target_grow_rate: int, 
-        confidence: int) -> None:
+        reward_target_grow_rate: int) -> None:
         self.gamma = gamma
         self.target_update = target_update
         self.update_counter = 0
         self.n_actions = output_dim
         self.Q_Network = Network(input_dim, output_dim, learning_rate)
         self.Q_Target_Network = Network(input_dim, output_dim, learning_rate)
-        self.EpsilonController = EpsilonController(epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence)
+        self.EpsilonController = EpsilonController(epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate)
         self.PrioritizedReplayBuffer = PrioritizedReplayBuffer(input_dim, buffer_size, batch_size, prior_eps, alpha, beta)
     
     def update_Target_Network(self) -> None:

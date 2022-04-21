@@ -1,3 +1,4 @@
+from typing import Dict
 import gym
 import time
 import math
@@ -10,27 +11,25 @@ import torch.nn.functional as F
 
 
 class Replay_Buffer:
-    def __init__(self, input_dims, buffer_size, batch_size):
+    def __init__(self, input_dim: tuple, buffer_size: int, batch_size: int):
         self.counter = 0
         self.buffer_size = buffer_size
         self.batch_size = batch_size
-        self.state_memory = np.zeros((buffer_size, *input_dims), dtype = np.float32)
+        self.state_memory = np.zeros((buffer_size, *input_dim), dtype = np.float32)
         self.action_memory = np.zeros(buffer_size, dtype = np.int8)
         self.reward_memory = np.zeros(buffer_size, dtype = np.float32)
-        self.next_state_memory = np.zeros((buffer_size, *input_dims), dtype = np.float32)
+        self.next_state_memory = np.zeros((buffer_size, *input_dim), dtype = np.float32)
         self.terminal_state_memory = np.zeros(buffer_size, dtype = np.bool8)
     
-    def store(self, state, action, reward, next_state, is_done):
-        if self.is_full():
-            return None
+    def store(self, state: np.ndarray, action: int, reward: float, next_state: np.ndarray, done: bool) -> None:
         self.state_memory[self.counter] = state
         self.action_memory[self.counter] = action
         self.reward_memory[self.counter] = reward
         self.next_state_memory[self.counter] = next_state
-        self.terminal_state_memory[self.counter] = is_done
+        self.terminal_state_memory[self.counter] = done
         self.counter += 1
     
-    def sample_batch(self):
+    def sample_batch(self) -> Dict[str, torch.Tensor]:
         batch_index = np.random.choice(self.buffer_size, self.batch_size, False)
         return dict(
             state_batch = torch.tensor(self.state_memory[batch_index], dtype = torch.float32),
@@ -40,7 +39,7 @@ class Replay_Buffer:
             terminal_state_batch = torch.tensor(self.terminal_state_memory[batch_index], dtype = torch.bool)
         )
     
-    def reset_buffer(self):
+    def reset_buffer(self) -> None:
         self.counter = 0
         self.state_memory.fill(0)
         self.action_memory.fill(0)
@@ -48,12 +47,12 @@ class Replay_Buffer:
         self.next_state_memory.fill(0)
         self.terminal_state_memory.fill(0)
     
-    def is_full(self):
+    def is_full(self) -> bool:
         return self.counter >= self.buffer_size
 
 
 class Epsilon_Controller:
-    def __init__(self, epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence):
+    def __init__(self, epsilon: float, epsilon_decay_rate: str, minimum_epsilon: float, reward_target: float, reward_target_grow_rate: float, confidence: int) -> None:
         self.epsilon = epsilon
         self.epsilon_decay_rate = epsilon_decay_rate
         self.minimum_epsilon = minimum_epsilon
@@ -63,7 +62,7 @@ class Epsilon_Controller:
         self.confidence_count = 0
         self.deci_place = self._get_deci_place()
     
-    def decay(self, last_reward):
+    def decay(self, last_reward: float) -> None:
         if self.epsilon > self.minimum_epsilon and last_reward >= self.reward_target:
             if self.confidence_count < self.confidence:
                 self.confidence_count += 1
@@ -87,7 +86,7 @@ class Epsilon_Controller:
 
 
 class NoisyLinear(nn.Module):
-    def __init__(self, input_dim, output_dim, std_init = 0.5):
+    def __init__(self, input_dim: tuple, output_dim: int, std_init = 0.5):
         super(NoisyLinear, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -104,21 +103,21 @@ class NoisyLinear(nn.Module):
         self.reset_parameters()
         self.reset_noise()
     
-    def reset_parameters(self):
+    def reset_parameters(self) -> None:
         mean_range = 1 / math.sqrt(self.input_dim)
         self.weight_mean.data.uniform_(-mean_range, mean_range)
         self.weight_std.data.fill_(self.std_init / math.sqrt(self.input_dim))
         self.bias_mean.data.uniform_(-mean_range, mean_range)
         self.bias_std.data.fill_(self.std_init / math.sqrt(self.input_dim))
     
-    def reset_noise(self):
+    def reset_noise(self) -> None:
         epsilon_in = self.scale_noise(self.input_dim)
         epsilon_out = self.scale_noise(self.output_dim)
 
         self.weight_epsilon.copy_(epsilon_out.outer(epsilon_in))
         self.bias_epsilon.copy_(epsilon_out)
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return F.linear(
             x, 
             self.weight_mean + self.weight_std * self.weight_epsilon, 
@@ -126,13 +125,13 @@ class NoisyLinear(nn.Module):
         )
     
     @staticmethod
-    def scale_noise(size):
+    def scale_noise(size: int) -> float:
         x = torch.randn(size)
         return x.sign().mul(x.abs().sqrt())
 
 
 class NoisyNetwork(nn.Module):
-    def __init__(self, input_dim, output_dim, learning_rate):
+    def __init__(self, input_dim: tuple, output_dim: int, learning_rate: float) -> None:
         super(NoisyNetwork, self).__init__()
         self.feature = nn.Linear(*input_dim, 64)
         self.noisy_layer1 = NoisyLinear(64, 64)
@@ -140,39 +139,39 @@ class NoisyNetwork(nn.Module):
         self.optimizer = optim.Adam(self.parameters(), lr = learning_rate)
         self.loss = nn.SmoothL1Loss()
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.noisy_layer2(F.mish(self.noisy_layer1(F.mish(self.feature(x.float())))))
     
-    def reset_noise(self):
+    def reset_noise(self) -> None:
         self.noisy_layer1.reset_noise()
         self.noisy_layer2.reset_noise()
 
 
 class Agent:
-    def __init__(self, input_dims, output_dims, learning_rate, gamma, buffer_size, batch_size, epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence):
-        self.input_dims = input_dims
-        self.output_dims = output_dims
+    def __init__(self, input_dim: tuple, output_dim: int, learning_rate: float, gamma: float, buffer_size: int, batch_size: int, epsilon: float, epsilon_decay_rate: str, minimum_epsilon: float, reward_target: float, reward_target_grow_rate: float, confidence: int) -> None:
+        self.input_dims = input_dim
+        self.output_dims = output_dim
         self.learning_rate = learning_rate
         self.gamma = gamma
-        self.network = NoisyNetwork(input_dims, output_dims, learning_rate)
-        self.target_network = NoisyNetwork(input_dims, output_dims, learning_rate)
-        self.buffer = Replay_Buffer(input_dims, buffer_size, batch_size)
+        self.network = NoisyNetwork(input_dim, output_dim, learning_rate)
+        self.target_network = NoisyNetwork(input_dim, output_dim, learning_rate)
+        self.buffer = Replay_Buffer(input_dim, buffer_size, batch_size)
         self.epsilon_controller = Epsilon_Controller(epsilon, epsilon_decay_rate, minimum_epsilon, reward_target, reward_target_grow_rate, confidence)
         self.update_network()
 
-    def choose_action(self, state):
+    def choose_action(self, state: np.ndarray) -> int:
         if np.random.random() > self.epsilon_controller.epsilon:
             return torch.argmax(self.network.forward(torch.tensor(state))).item()
         else:
             return np.random.choice(self.output_dims)
     
-    def SHIN_choose_action(self, state):
+    def SHIN_choose_action(self, state: np.ndarray) -> int:
         return torch.argmax(self.network.forward(torch.tensor(state))).item()
     
-    def update_network(self):
+    def update_network(self) -> None:
         self.target_network.load_state_dict(self.network.state_dict())
 
-    def learn(self, env):
+    def learn(self, env: gym.Env) -> float:
         batch = self.buffer.sample_batch()
         batch_index = np.arange(self.buffer.batch_size, dtype = np.longlong)
         state_batch = batch.get("state_batch")
@@ -202,7 +201,7 @@ class Agent:
         self.epsilon_controller.decay(score)
         return score
     
-    def test(self, env, n_games):
+    def test(self, env: gym.Env, n_games: int) -> None:
         for i in range(n_games):
             score = 0
             is_done = False
