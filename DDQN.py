@@ -185,6 +185,8 @@ if __name__ == "__main__":
                 next_state, reward, is_done, _ = env.step(action)
                 agent.buffer.store(state, action, reward, next_state, is_done)
                 state = next_state
+                if agent.buffer.is_full():
+                    break
         for _ in range(epoch_to_learn_from_buffer):
             score = agent.learn(env)
             agent.update_network()
