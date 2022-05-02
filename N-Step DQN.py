@@ -194,6 +194,16 @@ class Agent:
             if (i + 1) % 50:
                 print(f"Iteration: {i + 1}, Epsilon: {self.epsilon_controller.eps}, Loss: {loss}, Last Game Score: {score}")
 
+    def test(self, env: gym.Env) -> None:
+        state = env.reset()
+        done = False
+        score = 0
+        while not done:
+            env.render()
+            state, reward, done, _ = env.step(self.choose_action_train(state))
+            score += reward
+        print(f"Score: {score}")
+
 
 if __name__ == "__main__":
     env = gym.make("CartPole-v1")
@@ -203,6 +213,8 @@ if __name__ == "__main__":
         2000, 32, 3, 0.99,
         1.0, "0.0005", 0.0
     )
-    agent.train(20000, env)
+    # with open("N_Step_DDQN.pickle", "rb") as f:
+    #     agent = pickle.load(f)
+    # agent.test(env)
     with open("N_Step_DDQN.pickle", "wb") as f:
         pickle.dump(agent, f)
