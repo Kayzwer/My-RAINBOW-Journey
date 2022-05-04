@@ -26,6 +26,7 @@ if last_game_score >= rt:
   if confidence_count == c:
     eps = (eps - eps_dr) if eps > min_eps else min_eps 
     rt += rt_gr
+    confidence_count = 0
 else:
   confidence_count = 0
 </pre>
