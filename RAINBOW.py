@@ -357,6 +357,7 @@ class Agent:
         self.support = torch.linspace(
             self.v_min, self.v_max, self.atom_size
         )
+        self.epsilon_controller = EpsilonController(init_eps, eps_dec_rate, min_eps)
         self.dqn = Network(
             state_dim, action_dim, self.atom_size, self.support
         )
@@ -370,10 +371,13 @@ class Agent:
         self.is_test = False
     
     def choose_action(self, state: np.ndarray) -> int:
-        return self.dqn(
-            torch.as_tensor(state, dtype = torch.float32)
-        ).argmax().item()
-
+        if self.epsilon_controller.eps <= np.random.random():
+            return self.dqn(
+                torch.as_tensor(state, dtype = torch.float32)
+            ).argmax().item()
+        else:
+            return np.random.choice(self.dqn.out_dim)
+    
     def step(self, action: int) -> Tuple[np.ndarray, np.float64, bool]:
         next_state, reward, done, _ = self.env.step(action)
         if not self.is_test:
@@ -406,3 +410,75 @@ class Agent:
         clip_grad_norm_(self.dqn.parameters(), 10.0)
         self.optimizer.step()
         
+        loss_for_prior = elementwise_loss.detach().cpu().numpy()
+        new_priorities = loss_for_prior + self.prior_eps
+        self.memory.update_priorities(indexes, new_priorities)
+        self.dqn.reset_noise()
+        self.target_dqn.reset_noise()
+        return loss.item()
+    
+    def train(self, num_games: int) -> None:
+        self.is_test = False
+        for i in range(num_games):
+            state = self.env.reset()
+            update_count = 0
+            score = 0
+            done = False
+            while not done:
+                action = self.choose_action(state)
+                next_state, reward, done = self.step(action)
+                state = next_state
+                score += reward
+
+                fraction = min(i + 1 / num_games, 1.0)
+                self.beta = self.beta + fraction * (1.0 - self.beta)
+
+                if len(self.memory) >= self.batch_size:
+                    loss = self.update_model()
+                    update_count += 1
+                    self.epsilon_controller.decay()
+
+                    if update_count % self.target_update == 0:
+                        self._target_hard_update()
+            print(f"Iteration: {i + 1}, Epsilon: {self.epsilon_controller.eps}, Last Game Score: {score}")
+    
+    def _target_hard_update(self) -> None:
+        self.target_dqn.load_state_dict(self.dqn.state_dict())
+
+    def _compute_dqn_loss(self, samples: Dict[str, np.ndarray], gamma: float) -> torch.Tensor:
+        states = torch.as_tensor(samples.get("states"), dtype = torch.float32)
+        actions = torch.as_tensor(samples.get("acitons"), dtype = torch.long)
+        rewards = torch.as_tensor(samples.get("rewards"), dtype = torch.float32)
+        next_states = torch.as_tensor(samples.get("next_states"), dtype = torch.float32)
+        terminal_states = torch.as_tensor(samples.get("terminal_states"), dtype = torch.bool)
+
+        delta_z = float(self.v_max - self.v_min) / (self.atom_size - 1)
+
+        with torch.no_grad():
+            next_actions = self.dqn(next_states).argmax(1)
+            next_dist = self.target_dqn.dist(next_states)
+            next_dist = next_dist[range(self.batch_size), next_actions]
+
+            t_z = rewards + ~terminal_states * gamma * self.support
+            t_z = t_z.clamp(min = self.v_min, max = self.v_max)
+            b = (t_z - self.v_min) / delta_z
+            l = b.floor().long()
+            u = b.ceil().long()
+
+            offset = (
+                torch.linspace(
+                    0, (self.batch_size - 1) * self.atom_size, self.batch_size
+                ).long()
+                .unsqueeze(1)
+                .expand(self.batch_size, self.atom_size)
+            )
+            proj_dist = torch.zeros(next_dist.size())
+            proj_dist.view(-1).index_add_(
+                0, (l + offset).view(-1), (next_dist * (u.float() - b)).view(-1)
+            )
+            proj_dist.view(-1).index_add_(
+                0, (u + offset).view(-1), (next_dist * (b - l.float())).view(-1)
+            )
+        dist = self.dqn.dist(states)
+        log_p = torch.log(dist[range(self.batch_size), actions])
+        return -(proj_dist * log_p).sum(1)
