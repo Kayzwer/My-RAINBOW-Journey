@@ -158,7 +158,7 @@ class Agent:
         q_pred = self.network.forward(states)[batch_index, actions]
         q_next = self.target_network.forward(next_states)[batch_index, self.network.forward(next_states).argmax(1)]
         q_target = rewards + gamma * q_next * ~terminal_states
-        return self.network.loss(q_pred, q_target)
+        return self.network.loss(q_pred, q_target.detach())
 
     def train(self, iteration: int, env: gym.Env) -> torch.Tensor:
         for i in range(iteration):

@@ -297,7 +297,7 @@ class Agent:
         Q_Pred = self.Q_Network.forward(states)[np.arange(self.PrioritizedReplayBuffer.batch_size), actions]
         Q_Next_Pred = self.Q_Target_Network.forward(next_states).max(dim = 1)[0]
         Q_Target = rewards + self.gamma * Q_Next_Pred * ~terminal_states
-        elementwise_loss = F.smooth_l1_loss(Q_Pred, Q_Target, reduction = "none")
+        elementwise_loss = F.smooth_l1_loss(Q_Pred, Q_Target.detach(), reduction = "none")
         loss = torch.mean(elementwise_loss * weights)
         loss.backward()
         self.Q_Network.optimizer.step()

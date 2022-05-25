@@ -185,7 +185,7 @@ class Agent:
         Q_Next = self.target_network.forward(next_state_batch)
         Argmax_action = torch.argmax(self.network.forward(next_state_batch), dim = 1)
         Q_Target = reward_batch + self.gamma * Q_Next[batch_index, Argmax_action] * ~terminal_state_batch
-        loss = self.network.loss(Q_Pred, Q_Target)
+        loss = self.network.loss(Q_Pred, Q_Target.detach())
         loss.backward()
         self.network.optimizer.step()
         self.network.reset_noise()
